@@ -26,7 +26,7 @@ SMARTPROXY_PORT = int(os.getenv("SMARTPROXY_PORT", 10001))
 
 
 # Ensure debug folder exists
-DEBUG_FOLDER.mkdir(exist_ok=True)
+DEBUG_FOLDER.mkdir(parents=True, exist_ok=True)
 
 def is_port_available(port):
     try:
