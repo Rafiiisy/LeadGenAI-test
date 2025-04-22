@@ -11,7 +11,8 @@ from selenium.webdriver.chrome.options import Options
 from selenium.common.exceptions import WebDriverException
 from selenium_stealth import stealth
 from ..utils.proxyUtils import format_proxy_for_chrome
-
+from selenium.webdriver.chrome.service import Service
+from webdriver_manager.chrome import ChromeDriverManager
 
 # Configurable constants
 DEBUG_PORT_START = 9222
@@ -118,7 +119,8 @@ def get_chrome_driver(headless=False, max_retries=3, proxy_url=None):
             chrome_options.add_argument("--headless=new")
 
         try:
-            driver = webdriver.Chrome(options=chrome_options)
+            service = Service(ChromeDriverManager().install())
+            driver = webdriver.Chrome(service=service, options=chrome_options)
 
             # 🥷 Apply stealth mode
             stealth(driver,
