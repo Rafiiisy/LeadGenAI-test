@@ -1,7 +1,7 @@
 import re
 import logging
 from urllib.parse import urlparse
-from unidecode import unidecode  # for character normalization
+# from unidecode import unidecode  # for character normalization
 
 def extract_domain(url):
     """Extract domain from a given URL, removing www and trailing slashes."""
