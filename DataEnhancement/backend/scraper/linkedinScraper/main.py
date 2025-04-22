@@ -47,61 +47,88 @@ def get_next_output_filename(base):
 CSV_OUTPUT = get_next_output_filename(CSV_OUTPUT_BASE)
 
 
-def run_batches(df, client_id):
-    results = []
-    total_batches = (len(df) + BATCH_SIZE - 1) // BATCH_SIZE
+def run_batch(
+    batch_df: pd.DataFrame,
+    batch_index: int,
+    total_batches: int,
+    global_progress: list[dict],
+    global_bar,
+    output_path: str | None,
+    li_at: str
+) -> list[dict]:
+    results: list[dict] = []
+    driver = None
 
-    for batch_index, i in enumerate(range(0, len(df), BATCH_SIZE)):
-        batch = df.iloc[i:i + BATCH_SIZE]
-        logging.info(f"🚀 Starting batch {batch_index + 1}/{total_batches}")
+    try:
+        driver = get_chrome_driver(li_at=li_at, headless=True)
+        driver.get("https://www.linkedin.com/feed")
+        if "login" in driver.current_url.lower():
+            logging.error("❌ Cookie login failed; aborting batch.")
+            return results
+        logging.info("✅ Authenticated; scraping %d companies", len(batch_df))
 
-        proxy_url = generate_smartproxy_url(client_id=f"{client_id}_batch{batch_index+1}")
-        driver = get_chrome_driver(
-            headless=False,
-            proxy_url=proxy_url
-        )
-
-        # Save unique profile info for debug/tracking (optional)
-        save_chrome_info(port=9222 + batch_index, user_data_dir=f"profile_{client_id}_batch{batch_index+1}")
-
-        user_data_dir = driver.capabilities.get("goog:chromeOptions", {}).get("args", [None])[0]
-
-        try:
-            if not login_to_linkedin(driver, USERNAME, PASSWORD):
-                logging.error("❌ Login failed. Skipping batch.")
-                continue
-
-            for _, row in tqdm(batch.iterrows(), total=len(batch), desc=f"🔄 Batch {batch_index + 1}/{total_batches}", leave=False, position=1):
+        with tqdm(total=len(batch_df), desc=f"Batch {batch_index+1}/{total_batches}", position=1, leave=False) as batch_bar:
+            for _, row in batch_df.iterrows():
                 company = row.get("Company", "UNKNOWN")
+                logging.info(f"🔍 Scraping company: {company}")
+                slug = re.sub(r"[^a-z0-9-]", "", company.lower().replace(" ", "-"))
+                about_url = f"https://www.linkedin.com/company/{slug}/about/"
+
+                driver.get(about_url)
+                time.sleep(random.uniform(1.5, 2.5))
+
+                path = urlparse(driver.current_url).path.lower()
+                if path.startswith(("/login", "/signup")):
+                    logging.error("🚫 Redirected to %s during %s, cookie expired; aborting batch", path, company)
+                    results.append({"Business Name": company, "Error": f"Redirected to {path}"})
+                    break
+
                 try:
                     result = scrape_linkedin(
                         driver,
                         company,
                         expected_city=row.get("City"),
                         expected_state=row.get("State"),
-                        expected_website=row.get("Website"),
-                        logged_in=True
+                        expected_website=row.get("Website")
                     )
                     result["Business Name"] = company
                     results.append(result)
-                    logging.info(f"✅ Scraped: {company}")
-                except Exception as e:
-                    logging.error(f"❌ Error in {company}: {e}")
-                    results.append({"Business Name": company, "Error": str(e)})
+                    logging.info("✅ Scraped: %s", company)
+                except Exception as exc:
+                    logging.error("❌ Error scraping %s: %s", company, exc, exc_info=True)
+                    error_result = {"Business Name": company, "Error": str(exc)}
+                    results.append(error_result)
 
-        finally:
+                main_h = driver.current_window_handle
+                for h in driver.window_handles:
+                    if h != main_h:
+                        driver.switch_to.window(h)
+                        driver.close()
+                driver.switch_to.window(main_h)
+
+                delay = random.uniform(5, 10)
+                logging.debug("🕒 Sleeping %.2f seconds before next company...", delay)
+                time.sleep(delay)
+
+                if "Error" in results[-1] and "429" in results[-1]["Error"]:
+                    sleep_min = random.uniform(3, 4)
+                    logging.warning("⚠️ 429 detected; sleeping %.1f min", sleep_min)
+                    time.sleep(sleep_min * 60)
+
+                global_bar.update(1)
+                batch_bar.update(1)
+
+                # Save CSV every 5 rows scraped
+                if output_path and len(results) % 5 == 0:
+                    pd.DataFrame(results).to_csv(output_path, index=False)
+                    logging.info("💾 Auto-saved %d rows → %s", len(results), output_path)
+
+    finally:
+        if driver:
             try:
                 driver.quit()
-            except:
-                pass
-            if user_data_dir and "temp_profiles" in user_data_dir and os.path.exists(user_data_dir):
-                shutil.rmtree(user_data_dir, ignore_errors=True)
-                logging.debug(f"🧹 Cleaned profile: {user_data_dir}")
-
-        if batch_index < total_batches - 1:
-            sleep_time = random.uniform(*WAIT_BETWEEN_BATCHES)
-            logging.info(f"⏱️ Waiting {sleep_time:.2f}s before next batch")
-            time.sleep(sleep_time)
+            except Exception:
+                logging.debug("🛑 Driver quit raised during cleanup.")
 
     return results
 
