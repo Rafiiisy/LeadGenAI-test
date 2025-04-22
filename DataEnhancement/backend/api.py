@@ -5,7 +5,6 @@ import pandas as pd
 import uuid
 import logging
 
-# LinkedIn only
 from scraper.linkedinScraper.main import run_batches
 
 app = Flask(__name__)
@@ -14,12 +13,20 @@ load_dotenv()
 @app.route("/api/linkedin-info-batch", methods=["POST"])
 def get_linkedin_info_batch():
     try:
-        data_list = request.get_json()
+        payload = request.get_json()
+
+        if not isinstance(payload, dict):
+            return jsonify({"error": "Expected a JSON object with 'data' and 'li_at'"}), 400
+
+        data_list = payload.get("data")
+        li_at = payload.get("li_at")
 
         if not isinstance(data_list, list):
-            return jsonify({"error": "Expected a list of objects"}), 400
+            return jsonify({"error": "Field 'data' must be a list"}), 400
+        if not isinstance(li_at, str) or not li_at.strip():
+            return jsonify({"error": "Field 'li_at' must be a non-empty string"}), 400
 
-        # Normalize column names
+        # Convert and normalize DataFrame
         df = pd.DataFrame(data_list)
         df.rename(columns=lambda col: col.capitalize(), inplace=True)
 
@@ -27,7 +34,7 @@ def get_linkedin_info_batch():
             return jsonify({"error": "Missing or empty 'Company' column"}), 400
 
         client_id = f"api_{uuid.uuid4().hex[:8]}"
-        results = run_batches(df, client_id=client_id)
+        results = run_batches(df, client_id=client_id, li_at=li_at)
 
         return jsonify(results), 200
 
