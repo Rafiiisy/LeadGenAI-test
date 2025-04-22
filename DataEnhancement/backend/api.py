@@ -5,7 +5,7 @@ import pandas as pd
 import uuid
 import logging
 
-from scraper.linkedinScraper.main import run_batches
+from scraper.linkedinScraper.main import run_batch
 
 app = Flask(__name__)
 load_dotenv()
@@ -34,7 +34,7 @@ def get_linkedin_info_batch():
             return jsonify({"error": "Missing or empty 'Company' column"}), 400
 
         client_id = f"api_{uuid.uuid4().hex[:8]}"
-        results = run_batches(df, client_id=client_id, li_at=li_at)
+        results = run_batch(df, client_id=client_id, li_at=li_at)
 
         return jsonify(results), 200
 
